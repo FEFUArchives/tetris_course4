@@ -1,19 +1,18 @@
 import Phaser from 'phaser';
-import { GameScene } from './GameScene';
+import { BOARD_HEIGHT, BOARD_WIDTH, GameScene } from './GameScene';
 
 export function createGame(parent: string): Phaser.Game {
-  const config: Phaser.Types.Core.GameConfig = {
+  return new Phaser.Game({
     type: Phaser.AUTO,
     parent,
-    width: 960,
-    height: 640,
-    backgroundColor: '#0f172a',
+    width: BOARD_WIDTH,
+    height: BOARD_HEIGHT,
+    backgroundColor: '#101b29',
     scene: [GameScene],
+    render: { antialias: true },
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-  };
-
-  return new Phaser.Game(config);
+  });
 }
