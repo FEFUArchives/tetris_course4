@@ -26,6 +26,8 @@ button { font: inherit; }
 .eyebrow { margin: 0; color: #8e9caf; font-size: 10px; line-height: 1.6; font-weight: 600; letter-spacing: 1.8px; }
 .tiny-clock { font-size: 15px; margin-right: 7px; vertical-align: -1px; }
 .timer { font-size: 44px; font-weight: 400; letter-spacing: -1px; font-variant-numeric: tabular-nums; margin: 13px 0 10px; }
+.phase-countdown { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; color: #8d9daf; font-size: 11px; }
+.phase-countdown strong { color: #a4e9d0; font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .status { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #8d9daf; }
 .status-dot, .caption-dot { width: 6px; height: 6px; border-radius: 50%; background: #7dd9ba; }
 .status-dot.inactive { background: #e6b86a; }
@@ -49,6 +51,9 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .board-frame { position: relative; border: 1px solid #344458; border-radius: 8px; padding: 5px; background: #152132; box-shadow: 0 16px 44px #0003, 0 0 40px #7dd9ba04; overflow: hidden; }
 #game { width: 100%; aspect-ratio: 1 / 2; overflow: hidden; border-radius: 3px; }
 canvas { display: block; }
+.phase-notice { position: absolute; inset: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; pointer-events: none; opacity: 0; text-align: center; background: radial-gradient(ellipse at center, #0b121ce6, #0b121c00 65%); }
+.phase-notice strong { color: #d9fff1; font-size: clamp(28px, 5vw, 48px); font-weight: 800; letter-spacing: 3px; text-shadow: 0 0 24px #7dd9ba80, 0 3px 12px #000; }
+.phase-notice span { color: #a4e9d0; font-size: 11px; letter-spacing: .6px; text-shadow: 0 2px 6px #000; }
 .board-overlay { position: absolute; inset: 5px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; background: #0c1628dc; backdrop-filter: blur(5px); border-radius: 3px; pointer-events: none; }
 .board-overlay[hidden] { display: none; }
 .overlay-symbol { font-size: 36px; color: #7dd9ba; }

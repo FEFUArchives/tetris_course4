@@ -15,6 +15,7 @@ app.innerHTML = `
         <section class="timer-card">
           <div class="eyebrow"><span class="tiny-clock" aria-hidden="true">◷</span> ВРЕМЯ ИГРЫ</div>
           <div id="timer" class="timer">00:00</div>
+          <div class="phase-countdown"><span id="phase-label">До следующей фазы</span><strong id="phase-timer"></strong></div>
           <div class="status"><span id="status-dot" class="status-dot"></span><span id="status">Игра идёт</span></div>
         </section>
         <div class="controls">
@@ -32,9 +33,10 @@ app.innerHTML = `
         </section>
       </aside>
       <div class="board-column">
-        <div class="board-heading"><span class="eyebrow">ИГРОВОЕ ПОЛЕ</span><span>10 × 20</span></div>
+        <div class="board-heading"><span class="eyebrow">ИГРОВОЕ ПОЛЕ</span><span id="board-size">10 × 20</span></div>
         <div class="board-frame">
           <div id="game" aria-label="Игровое поле тетриса"></div>
+          <div id="phase-notice" class="phase-notice" role="status" aria-live="polite"><strong id="phase-title"></strong><span id="phase-description"></span></div>
           <div id="board-overlay" class="board-overlay" hidden><span class="overlay-symbol" aria-hidden="true">Ⅱ</span><h1 id="overlay-title">Пауза</h1><p id="overlay-description">Нажми P, чтобы продолжить</p></div>
         </div>
         <div class="touch-controls" aria-label="Управление на сенсорном экране">
@@ -48,7 +50,7 @@ app.innerHTML = `
       <aside class="right-sidebar">
         <section class="panel preview-panel"><div class="panel-heading"><h2 class="eyebrow">КАРМАН</h2><kbd>C</kbd></div><div id="hold-preview" class="piece-preview" aria-label="Карман пуст"></div><p id="hold-note" class="panel-note" hidden></p></section>
         <section class="panel preview-panel"><h2 class="eyebrow">СЛЕДУЮЩАЯ</h2><div id="next-preview" class="piece-preview" aria-label="Следующая фигура"></div></section>
-        <section class="panel stats-panel"><h2 class="eyebrow">СТАТИСТИКА</h2><div class="score-stat"><span>Счёт</span><strong id="score">0</strong></div><div class="stat-row"><span>Уровень</span><strong id="level">01</strong></div><div class="stat-row"><span>Линии</span><strong id="lines">0</strong></div><div class="level-track"><div id="level-progress"></div></div><p id="level-note" class="panel-note">10 линий до уровня 2</p></section>
+        <section class="panel stats-panel"><h2 class="eyebrow">СТАТИСТИКА</h2><div class="score-stat"><span>Счёт</span><strong id="score">0</strong></div><div class="stat-row"><span>Фаза</span><strong id="level">01</strong></div><div class="stat-row"><span>Линии</span><strong id="lines">0</strong></div><div class="level-track"><div id="level-progress"></div></div></section>
       </aside>
     </section>
   </div>

@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
+import {
+  PHASE_DURATION_MS, MAX_PHASE, MIN_PLAYABLE_ROWS, PHASE_NOTICE_MS,
+  INITIAL_FALL_MS, MIN_FALL_MS, SPEED_FACTOR,
+} from '../config';
 
 const COLUMNS = 10;
 const ROWS = 20;
 const CELL_SIZE = 32;
 export const BOARD_WIDTH = COLUMNS * CELL_SIZE;
 export const BOARD_HEIGHT = ROWS * CELL_SIZE;
-const LINES_PER_LEVEL = 10;
-const INITIAL_FALL_MS = 850;
-const MIN_FALL_MS = 90;
-const SPEED_FACTOR = 0.8;
 const SOFT_DROP_MS = 40;
 const LOCK_DELAY_MS = 450;
 const MAX_LOCK_RESETS = 15;
@@ -49,6 +49,8 @@ export class GameScene extends Phaser.Scene {
   private score = 0;
   private lines = 0;
   private elapsed = 0;
+  private level = 1;
+  private phaseAnimation: Animation | null = null;
   private lastSecond = -1;
   private fallTime = 0;
   private lockTime = 0;
@@ -87,6 +89,7 @@ export class GameScene extends Phaser.Scene {
       element('hold-button').removeEventListener('click', hold);
       document.querySelector('.touch-controls')?.removeEventListener('click', touch);
       this.game.events.off(Phaser.Core.Events.BLUR, blur);
+      this.phaseAnimation?.cancel();
     });
     this.resetGame();
   }
@@ -94,10 +97,15 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.paused || this.finished) return;
     this.elapsed += delta;
+    while (this.level < MAX_PHASE && this.elapsed >= this.level * PHASE_DURATION_MS) {
+      this.advancePhase();
+      if (this.finished) return;
+    }
     const seconds = Math.floor(this.elapsed / 1000);
     if (seconds !== this.lastSecond) {
       this.lastSecond = seconds;
       element('timer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      this.refreshStats();
     }
     const soft = this.downKey.isDown;
     const interval = soft ? SOFT_DROP_MS : Math.max(MIN_FALL_MS, INITIAL_FALL_MS * SPEED_FACTOR ** (this.level - 1));
@@ -115,7 +123,34 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private get level(): number { return Math.floor(this.lines / LINES_PER_LEVEL) + 1; }
+  private get topRow(): number { return Math.min(this.level - 1, ROWS - MIN_PLAYABLE_ROWS); }
+
+  private advancePhase(): void {
+    const previousTop = this.topRow;
+    this.level += 1;
+    if (this.topRow > previousTop) {
+      // The removed row becomes ceiling; a settled block there ends the game.
+      if (this.board[previousTop].some(cell => cell !== null)) this.finished = true;
+      const firstOccupiedRow = this.active.shape.findIndex(row => row.some(Boolean));
+      this.active.y = Math.max(this.active.y, this.topRow - firstOccupiedRow);
+      if (!this.fits(this.active.shape, this.active.x, this.active.y)) this.finished = true;
+    }
+    this.refreshUI();
+    this.drawBoard();
+    if (this.finished) return;
+    element('phase-title').textContent = `ФАЗА ${this.level}`;
+    element('phase-description').textContent = this.topRow > previousTop
+      ? 'Поле меньше · скорость выше'
+      : 'Скорость выше';
+    this.phaseAnimation?.cancel();
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.phaseAnimation = element('phase-notice').animate([
+      { opacity: 0, transform: reducedMotion ? 'none' : 'scale(1.3) translateY(8px)', offset: 0 },
+      { opacity: 1, transform: 'none', offset: 0.08 },
+      { opacity: 1, transform: 'none', offset: 0.4 },
+      { opacity: 0, transform: reducedMotion ? 'none' : 'scale(1.03) translateY(-10px)', offset: 1 },
+    ], { duration: PHASE_NOTICE_MS, easing: 'ease-out' });
+  }
 
   private resetGame(): void {
     this.board = Array.from({ length: ROWS }, () => Array<PieceType | null>(COLUMNS).fill(null));
@@ -125,6 +160,9 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.lines = 0;
     this.elapsed = 0;
+    this.level = 1;
+    this.phaseAnimation?.cancel();
+    this.phaseAnimation = null;
     this.lastSecond = -1;
     this.paused = false;
     this.finished = false;
@@ -149,7 +187,7 @@ export class GameScene extends Phaser.Scene {
 
   private spawn(type: PieceType): void {
     const shape = SHAPES[type].map(row => [...row]);
-    this.active = { type, shape, x: Math.floor((COLUMNS - shape.length) / 2), y: 0 };
+    this.active = { type, shape, x: Math.floor((COLUMNS - shape.length) / 2), y: this.topRow };
     this.fallTime = 0;
     this.lockTime = 0;
     this.lockResets = 0;
@@ -163,7 +201,7 @@ export class GameScene extends Phaser.Scene {
       if (!cell) return true;
       const column = x + dx;
       const line = y + dy;
-      return column >= 0 && column < COLUMNS && line < ROWS && (line < 0 || this.board[line][column] === null);
+      return column >= 0 && column < COLUMNS && line >= this.topRow && line < ROWS && this.board[line][column] === null;
     }));
   }
 
@@ -214,7 +252,7 @@ export class GameScene extends Phaser.Scene {
     let aboveBoard = false;
     shape.forEach((row, dy) => row.forEach((cell, dx) => {
       if (!cell) return;
-      if (y + dy < 0) aboveBoard = true;
+      if (y + dy < this.topRow) aboveBoard = true;
       else this.board[y + dy][x + dx] = type;
     }));
     if (aboveBoard) {
@@ -223,12 +261,12 @@ export class GameScene extends Phaser.Scene {
       this.drawBoard();
       return;
     }
-    const remaining = this.board.filter(row => row.some(cell => cell === null));
-    const cleared = ROWS - remaining.length;
+    const remaining = this.board.slice(this.topRow).filter(row => row.some(cell => cell === null));
+    const cleared = ROWS - this.topRow - remaining.length;
     this.score += LINE_POINTS[cleared] * this.level;
     this.lines += cleared;
     this.board = [
-      ...Array.from({ length: cleared }, () => Array<PieceType | null>(COLUMNS).fill(null)),
+      ...Array.from({ length: this.topRow + cleared }, () => Array<PieceType | null>(COLUMNS).fill(null)),
       ...remaining,
     ];
     this.canHold = true;
@@ -284,12 +322,20 @@ export class GameScene extends Phaser.Scene {
     element('score').textContent = this.score.toLocaleString('ru-RU');
     element('level').textContent = String(this.level).padStart(2, '0');
     element('lines').textContent = String(this.lines);
-    const progress = this.lines % LINES_PER_LEVEL;
-    element('level-progress').style.width = `${progress / LINES_PER_LEVEL * 100}%`;
-    element('level-note').textContent = `${LINES_PER_LEVEL - progress} линий до уровня ${this.level + 1}`;
+    const isFinalPhase = this.level >= MAX_PHASE;
+    const progress = isFinalPhase ? PHASE_DURATION_MS : this.elapsed % PHASE_DURATION_MS;
+    const remaining = Math.ceil((PHASE_DURATION_MS - progress) / 1000);
+    element('phase-label').textContent = isFinalPhase ? 'Максимальная фаза' : 'До следующей фазы';
+    element('phase-timer').hidden = isFinalPhase;
+    element('phase-timer').textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
+    element('level-progress').style.width = `${progress / PHASE_DURATION_MS * 100}%`;
+    element('board-size').textContent = `${COLUMNS} × ${ROWS - this.topRow}`;
   }
 
   private refreshUI(): void {
+    if (this.finished) this.phaseAnimation?.cancel();
+    else if (this.paused) this.phaseAnimation?.pause();
+    else if (this.phaseAnimation?.playState === 'paused') this.phaseAnimation.play();
     this.refreshStats();
     this.drawPreview('hold-preview', this.held);
     this.drawPreview('next-preview', this.next);
@@ -334,11 +380,18 @@ export class GameScene extends Phaser.Scene {
     const g = this.graphics;
     g.clear();
     g.lineStyle(1, 0x25364a, 0.55);
-    for (let x = 1; x < COLUMNS; x++) g.lineBetween(x * CELL_SIZE, 0, x * CELL_SIZE, BOARD_HEIGHT);
-    for (let y = 1; y < ROWS; y++) g.lineBetween(0, y * CELL_SIZE, BOARD_WIDTH, y * CELL_SIZE);
+    const ceilingY = this.topRow * CELL_SIZE;
+    for (let x = 1; x < COLUMNS; x++) g.lineBetween(x * CELL_SIZE, ceilingY, x * CELL_SIZE, BOARD_HEIGHT);
+    for (let y = this.topRow + 1; y < ROWS; y++) g.lineBetween(0, y * CELL_SIZE, BOARD_WIDTH, y * CELL_SIZE);
     this.board.forEach((row, y) => row.forEach((cell, x) => {
       if (cell) this.drawCell(x, y, COLORS[cell]);
     }));
+    if (this.topRow > 0) {
+      g.fillStyle(0x0b121c, 1);
+      g.fillRect(0, 0, BOARD_WIDTH, ceilingY);
+      g.lineStyle(2, 0x7dd9ba, 0.8);
+      g.lineBetween(0, ceilingY, BOARD_WIDTH, ceilingY);
+    }
     if (this.finished) return;
     let ghostY = this.active.y;
     while (this.fits(this.active.shape, this.active.x, ghostY + 1)) ghostY += 1;
