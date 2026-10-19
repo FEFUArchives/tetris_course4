@@ -1,46 +1,24 @@
 import Phaser from 'phaser';
 import {
-  LINES_PER_PHASE, MAX_PHASE, MIN_PLAYABLE_ROWS, PHASE_NOTICE_MS,
-  INITIAL_FALL_MS, MIN_FALL_MS, SPEED_FACTOR,
+  ROWS, LINES_PER_PHASE, MAX_PHASE, MIN_PLAYABLE_ROWS,
+  INITIAL_FALL_MS, MIN_FALL_MS, SPEED_FACTOR, SOFT_DROP_MS,
+  LOCK_DELAY_MS, MAX_LOCK_RESETS, LINE_POINTS, WALL_OFFSETS,
+  SOFT_DROP_POINTS, HARD_DROP_POINTS,
 } from '../config';
+import { SHAPES, createPiece, rotateShape, type Matrix, type Piece, type PieceType } from './pieces';
+import { createEmptyRows, fitsOnBoard, getDropY, clearFullRows, type Board } from './board';
+import { drawBoard } from './renderer';
+import { element, GameUI, type GameStats } from '../ui/GameUI';
 
-const COLUMNS = 10;
-const ROWS = 20;
-const CELL_SIZE = 32;
-export const BOARD_WIDTH = COLUMNS * CELL_SIZE;
-export const BOARD_HEIGHT = ROWS * CELL_SIZE;
-const SOFT_DROP_MS = 40;
-const LOCK_DELAY_MS = 450;
-const MAX_LOCK_RESETS = 15;
-const LINE_POINTS = [0, 100, 300, 500, 800];
-const WALL_OFFSETS = [0, -1, 1, -2, 2];
-
-type Matrix = number[][];
-type PieceType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z';
-interface Piece { type: PieceType; shape: Matrix; x: number; y: number }
-const SHAPES: Record<PieceType, Matrix> = {
-  I: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]],
-  J: [[1, 0, 0], [1, 1, 1], [0, 0, 0]],
-  L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]],
-  O: [[1, 1], [1, 1]],
-  S: [[0, 1, 1], [1, 1, 0], [0, 0, 0]],
-  T: [[0, 1, 0], [1, 1, 1], [0, 0, 0]],
-  Z: [[1, 1, 0], [0, 1, 1], [0, 0, 0]],
+const KEY_ACTIONS: Record<string, string> = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'rotate',
+  Space: 'drop', KeyC: 'hold', ShiftLeft: 'hold', ShiftRight: 'hold',
 };
-const COLORS: Record<PieceType, number> = {
-  I: 0x6ccbdd, J: 0x709ee8, L: 0xeab375, O: 0xe5cc77,
-  S: 0x7dd9ba, T: 0xb59bdf, Z: 0xdf8594,
-};
-
-function element<T extends HTMLElement = HTMLElement>(id: string): T {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`Missing UI element: ${id}`);
-  return node as T;
-}
 
 export class GameScene extends Phaser.Scene {
   private graphics!: Phaser.GameObjects.Graphics;
-  private board: (PieceType | null)[][] = [];
+  private board: Board = [];
+  private ui = new GameUI();
   private active!: Piece;
   private bag: PieceType[] = [];
   private next!: PieceType;
@@ -50,7 +28,6 @@ export class GameScene extends Phaser.Scene {
   private lines = 0;
   private elapsed = 0;
   private level = 1;
-  private phaseAnimation: Animation | null = null;
   private lastSecond = -1;
   private fallTime = 0;
   private lockTime = 0;
@@ -89,7 +66,7 @@ export class GameScene extends Phaser.Scene {
       element('hold-button').removeEventListener('click', hold);
       document.querySelector('.touch-controls')?.removeEventListener('click', touch);
       this.game.events.off(Phaser.Core.Events.BLUR, blur);
-      this.phaseAnimation?.cancel();
+      this.ui.destroy();
     });
     this.resetGame();
   }
@@ -100,15 +77,14 @@ export class GameScene extends Phaser.Scene {
     const seconds = Math.floor(this.elapsed / 1000);
     if (seconds !== this.lastSecond) {
       this.lastSecond = seconds;
-      element('timer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      this.ui.updateTimer(seconds);
     }
     const soft = this.downKey.isDown;
     const interval = soft ? SOFT_DROP_MS : Math.max(MIN_FALL_MS, INITIAL_FALL_MS * SPEED_FACTOR ** (this.level - 1));
     this.fallTime += delta;
     while (this.fallTime >= interval) {
       this.fallTime -= interval;
-      if (!this.move(0, 1)) break;
-      if (soft) { this.score += 1; this.refreshStats(); }
+      if (!(soft ? this.softDrop() : this.move(0, 1))) break;
     }
     if (!this.fits(this.active.shape, this.active.x, this.active.y + 1)) {
       this.lockTime += delta;
@@ -133,22 +109,11 @@ export class GameScene extends Phaser.Scene {
     this.refreshUI();
     this.drawBoard();
     if (this.finished) return;
-    element('phase-title').textContent = `ФАЗА ${this.level}`;
-    element('phase-description').textContent = this.topRow > previousTop
-      ? 'Поле меньше · скорость выше'
-      : 'Скорость выше';
-    this.phaseAnimation?.cancel();
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    this.phaseAnimation = element('phase-notice').animate([
-      { opacity: 0, transform: reducedMotion ? 'none' : 'scale(1.3) translateY(8px)', offset: 0 },
-      { opacity: 1, transform: 'none', offset: 0.08 },
-      { opacity: 1, transform: 'none', offset: 0.4 },
-      { opacity: 0, transform: reducedMotion ? 'none' : 'scale(1.03) translateY(-10px)', offset: 1 },
-    ], { duration: PHASE_NOTICE_MS, easing: 'ease-out' });
+    this.ui.showPhase(this.level, this.topRow > previousTop);
   }
 
   private resetGame(): void {
-    this.board = Array.from({ length: ROWS }, () => Array<PieceType | null>(COLUMNS).fill(null));
+    this.board = createEmptyRows(ROWS);
     this.bag = [];
     this.held = null;
     this.canHold = true;
@@ -156,14 +121,12 @@ export class GameScene extends Phaser.Scene {
     this.lines = 0;
     this.elapsed = 0;
     this.level = 1;
-    this.phaseAnimation?.cancel();
-    this.phaseAnimation = null;
+    this.ui.reset();
     this.lastSecond = -1;
     this.paused = false;
     this.finished = false;
     this.next = this.takeFromBag();
     this.spawnNext();
-    element('timer').textContent = '00:00';
     this.refreshUI();
   }
 
@@ -181,23 +144,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawn(type: PieceType): void {
-    const shape = SHAPES[type].map(row => [...row]);
-    this.active = { type, shape, x: Math.floor((COLUMNS - shape.length) / 2), y: this.topRow };
+    this.active = createPiece(type, this.topRow);
     this.fallTime = 0;
     this.lockTime = 0;
     this.lockResets = 0;
-    if (!this.fits(shape, this.active.x, this.active.y)) this.finished = true;
+    if (!this.fits(this.active.shape, this.active.x, this.active.y)) this.finished = true;
     this.refreshUI();
     this.drawBoard();
   }
 
   private fits(shape: Matrix, x: number, y: number): boolean {
-    return shape.every((row, dy) => row.every((cell, dx) => {
-      if (!cell) return true;
-      const column = x + dx;
-      const line = y + dy;
-      return column >= 0 && column < COLUMNS && line >= this.topRow && line < ROWS && this.board[line][column] === null;
-    }));
+    return fitsOnBoard(this.board, shape, x, y, this.topRow);
   }
 
   private move(dx: number, dy: number): boolean {
@@ -220,7 +177,7 @@ export class GameScene extends Phaser.Scene {
   private rotate(): void {
     if (this.active.type === 'O') return;
     const { shape, x, y } = this.active;
-    const rotated = shape[0].map((_, column) => shape.map(row => row[column]).reverse());
+    const rotated = rotateShape(shape);
     for (const offset of WALL_OFFSETS) {
       if (!this.fits(rotated, x + offset, y)) continue;
       const wasGrounded = !this.fits(shape, x, y + 1);
@@ -232,13 +189,17 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private softDrop(): boolean {
+    if (!this.move(0, 1)) return false;
+    this.score += SOFT_DROP_POINTS;
+    this.refreshStats();
+    return true;
+  }
+
   private drop(): void {
-    let distance = 0;
-    while (this.fits(this.active.shape, this.active.x, this.active.y + 1)) {
-      this.active.y += 1;
-      distance += 1;
-    }
-    this.score += distance * 2;
+    const y = getDropY(this.board, this.active, this.topRow);
+    this.score += (y - this.active.y) * HARD_DROP_POINTS;
+    this.active.y = y;
     this.lockPiece();
   }
 
@@ -256,14 +217,10 @@ export class GameScene extends Phaser.Scene {
       this.drawBoard();
       return;
     }
-    const remaining = this.board.slice(this.topRow).filter(row => row.some(cell => cell === null));
-    const cleared = ROWS - this.topRow - remaining.length;
+    const { board, cleared } = clearFullRows(this.board, this.topRow);
     this.score += LINE_POINTS[cleared] * this.level;
     this.lines += cleared;
-    this.board = [
-      ...Array.from({ length: this.topRow + cleared }, () => Array<PieceType | null>(COLUMNS).fill(null)),
-      ...remaining,
-    ];
+    this.board = board;
     this.canHold = true;
     this.spawnNext();
     while (!this.finished && this.level < MAX_PHASE && this.lines >= this.level * LINES_PER_PHASE) {
@@ -294,11 +251,7 @@ export class GameScene extends Phaser.Scene {
     if (event.code === 'KeyP' || event.code === 'Escape') this.togglePause();
     else if (event.code === 'KeyR') this.resetGame();
     else {
-      const actions: Record<string, string> = {
-        ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'rotate',
-        Space: 'drop', KeyC: 'hold', ShiftLeft: 'hold', ShiftRight: 'hold',
-      };
-      this.action(actions[event.code] ?? '');
+      this.action(KEY_ACTIONS[event.code] ?? '');
     }
   }
 
@@ -310,114 +263,26 @@ export class GameScene extends Phaser.Scene {
       case 'rotate': this.rotate(); break;
       case 'drop': this.drop(); break;
       case 'hold': this.hold(); break;
-      case 'down':
-        if (this.move(0, 1)) { this.score += 1; this.refreshStats(); }
-        break;
+      case 'down': this.softDrop(); break;
     }
+  }
+
+  private get stats(): GameStats {
+    return { score: this.score, level: this.level, lines: this.lines, topRow: this.topRow };
   }
 
   private refreshStats(): void {
-    element('score').textContent = this.score.toLocaleString('ru-RU');
-    element('level').textContent = String(this.level).padStart(2, '0');
-    element('lines').textContent = String(this.lines);
-    const isFinalPhase = this.level >= MAX_PHASE;
-    const progress = isFinalPhase ? LINES_PER_PHASE : this.lines % LINES_PER_PHASE;
-    const remaining = LINES_PER_PHASE - progress;
-    element('phase-label').textContent = isFinalPhase ? 'Максимальная фаза' : 'До следующей фазы';
-    element('phase-lines').hidden = isFinalPhase;
-    element('phase-lines').textContent = `${remaining} линий`;
-    element('level-progress').style.width = `${progress / LINES_PER_PHASE * 100}%`;
-    element('board-size').textContent = `${COLUMNS} × ${ROWS - this.topRow}`;
+    this.ui.updateStats(this.stats);
   }
 
   private refreshUI(): void {
-    if (this.finished) this.phaseAnimation?.cancel();
-    else if (this.paused) this.phaseAnimation?.pause();
-    else if (this.phaseAnimation?.playState === 'paused') this.phaseAnimation.play();
-    this.refreshStats();
-    this.drawPreview('hold-preview', this.held);
-    this.drawPreview('next-preview', this.next);
-    element('hold-note').hidden = this.canHold;
-    element('hold-note').textContent = this.canHold ? '' : 'Доступен после сброса';
-    element<HTMLButtonElement>('hold-button').disabled = !this.canHold || this.paused || this.finished;
-    element<HTMLButtonElement>('pause').disabled = this.finished;
-    element('pause-label').textContent = this.paused ? 'Продолжить' : 'Пауза';
-    element('pause-icon').textContent = this.paused ? '▷' : 'Ⅱ';
-    element('status').textContent = this.finished ? 'Игра окончена' : this.paused ? 'На паузе' : 'Игра идёт';
-    element('status-dot').classList.toggle('inactive', this.paused || this.finished);
-    element('board-overlay').hidden = !this.paused && !this.finished;
-    element('overlay-title').textContent = this.finished ? 'Игра окончена' : 'Пауза';
-    element('overlay-description').textContent = this.finished ? `Счёт: ${this.score.toLocaleString('ru-RU')}. Нажми R для новой игры` : 'Нажми P или «Продолжить»';
-  }
-
-  private drawPreview(id: string, type: PieceType | null): void {
-    const container = element(id);
-    container.replaceChildren();
-    container.setAttribute('aria-label', type ? `Фигура ${type}` : 'Карман пуст');
-    if (!type) {
-      const empty = document.createElement('span');
-      empty.className = 'empty-pocket';
-      empty.textContent = 'Пока пусто';
-      container.append(empty);
-      return;
-    }
-    const shape = SHAPES[type].filter(row => row.some(Boolean));
-    const grid = document.createElement('div');
-    grid.className = 'preview-grid';
-    grid.style.gridTemplateColumns = `repeat(${shape[0].length}, 1fr)`;
-    grid.style.setProperty('--piece-color', `#${COLORS[type].toString(16).padStart(6, '0')}`);
-    shape.flat().forEach(cell => {
-      const block = document.createElement('span');
-      block.className = `preview-cell${cell ? ' filled' : ''}`;
-      grid.append(block);
+    this.ui.update({
+      ...this.stats, held: this.held, next: this.next, canHold: this.canHold,
+      paused: this.paused, finished: this.finished,
     });
-    container.append(grid);
   }
 
   private drawBoard(): void {
-    const g = this.graphics;
-    g.clear();
-    g.lineStyle(1, 0x25364a, 0.55);
-    const ceilingY = this.topRow * CELL_SIZE;
-    for (let x = 1; x < COLUMNS; x++) g.lineBetween(x * CELL_SIZE, ceilingY, x * CELL_SIZE, BOARD_HEIGHT);
-    for (let y = this.topRow + 1; y < ROWS; y++) g.lineBetween(0, y * CELL_SIZE, BOARD_WIDTH, y * CELL_SIZE);
-    this.board.forEach((row, y) => row.forEach((cell, x) => {
-      if (cell) this.drawCell(x, y, COLORS[cell]);
-    }));
-    if (this.topRow > 0) {
-      g.fillStyle(0x0b121c, 1);
-      g.fillRect(0, 0, BOARD_WIDTH, ceilingY);
-      g.lineStyle(2, 0x7dd9ba, 0.8);
-      g.lineBetween(0, ceilingY, BOARD_WIDTH, ceilingY);
-    }
-    if (this.finished) return;
-    let ghostY = this.active.y;
-    while (this.fits(this.active.shape, this.active.x, ghostY + 1)) ghostY += 1;
-    this.active.shape.forEach((row, dy) => row.forEach((cell, dx) => {
-      if (!cell) return;
-      if (ghostY > this.active.y) this.drawCell(this.active.x + dx, ghostY + dy, COLORS[this.active.type], true);
-      this.drawCell(this.active.x + dx, this.active.y + dy, COLORS[this.active.type]);
-    }));
-  }
-
-  private drawCell(x: number, y: number, color: number, ghost = false): void {
-    if (y < 0) return;
-    const g = this.graphics;
-    const px = x * CELL_SIZE + 2;
-    const py = y * CELL_SIZE + 2;
-    const size = CELL_SIZE - 4;
-    if (ghost) {
-      g.fillStyle(color, 0.06);
-      g.fillRoundedRect(px, py, size, size, 3);
-      g.lineStyle(1, color, 0.35);
-      g.strokeRoundedRect(px + .5, py + .5, size - 1, size - 1, 3);
-    } else {
-      g.fillStyle(color, 1);
-      g.fillRoundedRect(px, py, size, size, 3);
-      g.lineStyle(1, 0xffffff, 0.25);
-      g.lineBetween(px + 3, py + 1, px + size - 3, py + 1);
-      g.lineStyle(2, 0x000000, 0.13);
-      g.lineBetween(px + 3, py + size - 1, px + size - 3, py + size - 1);
-    }
+    drawBoard(this.graphics, this.board, this.active, this.topRow, this.finished);
   }
 }
