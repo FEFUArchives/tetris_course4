@@ -325,7 +325,7 @@ export class GameScene extends Phaser.Scene {
     const remaining = LINES_PER_PHASE - progress;
     element('phase-label').textContent = isFinalPhase ? 'Максимальная фаза' : 'До следующей фазы';
     element('phase-lines').hidden = isFinalPhase;
-    element('phase-lines').textContent = `${remaining} л.`;
+    element('phase-lines').textContent = `${remaining} линий`;
     element('level-progress').style.width = `${progress / LINES_PER_PHASE * 100}%`;
     element('board-size').textContent = `${COLUMNS} × ${ROWS - this.topRow}`;
   }
