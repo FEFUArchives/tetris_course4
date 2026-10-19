@@ -15,7 +15,7 @@ app.innerHTML = `
         <section class="timer-card">
           <div class="eyebrow"><span class="tiny-clock" aria-hidden="true">◷</span> ВРЕМЯ ИГРЫ</div>
           <div id="timer" class="timer">00:00</div>
-          <div class="phase-countdown"><span id="phase-label">До следующей фазы</span><strong id="phase-timer"></strong></div>
+          <div class="phase-countdown"><span id="phase-label">До следующей фазы</span><strong id="phase-lines" title="Осталось очистить линий"></strong></div>
           <div class="status"><span id="status-dot" class="status-dot"></span><span id="status">Игра идёт</span></div>
         </section>
         <div class="controls">

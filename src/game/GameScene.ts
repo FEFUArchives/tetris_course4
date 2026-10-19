@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  PHASE_DURATION_MS, MAX_PHASE, MIN_PLAYABLE_ROWS, PHASE_NOTICE_MS,
+  LINES_PER_PHASE, MAX_PHASE, MIN_PLAYABLE_ROWS, PHASE_NOTICE_MS,
   INITIAL_FALL_MS, MIN_FALL_MS, SPEED_FACTOR,
 } from '../config';
 
@@ -97,15 +97,10 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.paused || this.finished) return;
     this.elapsed += delta;
-    while (this.level < MAX_PHASE && this.elapsed >= this.level * PHASE_DURATION_MS) {
-      this.advancePhase();
-      if (this.finished) return;
-    }
     const seconds = Math.floor(this.elapsed / 1000);
     if (seconds !== this.lastSecond) {
       this.lastSecond = seconds;
       element('timer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-      this.refreshStats();
     }
     const soft = this.downKey.isDown;
     const interval = soft ? SOFT_DROP_MS : Math.max(MIN_FALL_MS, INITIAL_FALL_MS * SPEED_FACTOR ** (this.level - 1));
@@ -271,6 +266,9 @@ export class GameScene extends Phaser.Scene {
     ];
     this.canHold = true;
     this.spawnNext();
+    while (!this.finished && this.level < MAX_PHASE && this.lines >= this.level * LINES_PER_PHASE) {
+      this.advancePhase();
+    }
   }
 
   private hold(): void {
@@ -323,12 +321,12 @@ export class GameScene extends Phaser.Scene {
     element('level').textContent = String(this.level).padStart(2, '0');
     element('lines').textContent = String(this.lines);
     const isFinalPhase = this.level >= MAX_PHASE;
-    const progress = isFinalPhase ? PHASE_DURATION_MS : this.elapsed % PHASE_DURATION_MS;
-    const remaining = Math.ceil((PHASE_DURATION_MS - progress) / 1000);
+    const progress = isFinalPhase ? LINES_PER_PHASE : this.lines % LINES_PER_PHASE;
+    const remaining = LINES_PER_PHASE - progress;
     element('phase-label').textContent = isFinalPhase ? 'Максимальная фаза' : 'До следующей фазы';
-    element('phase-timer').hidden = isFinalPhase;
-    element('phase-timer').textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
-    element('level-progress').style.width = `${progress / PHASE_DURATION_MS * 100}%`;
+    element('phase-lines').hidden = isFinalPhase;
+    element('phase-lines').textContent = `${remaining} л.`;
+    element('level-progress').style.width = `${progress / LINES_PER_PHASE * 100}%`;
     element('board-size').textContent = `${COLUMNS} × ${ROWS - this.topRow}`;
   }
 
